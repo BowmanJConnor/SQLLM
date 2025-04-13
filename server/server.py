@@ -1,7 +1,9 @@
 from flask import Flask, request, jsonify, render_template
+from llm_io import Llama4MaverickIO
 
 # Define website routes
 app = Flask(__name__)
+llm = None
 
 @app.route('/')
 def home():
@@ -12,6 +14,21 @@ def home():
 def test():
     return jsonify("Test Success"), 200
 
+@app.route('/deepseek_test', methods=['POST'])
+def deepseek_test():
+    data = request.json
+    print(f"Received Data on /deepseek_test: {data}")
+    if llm != None and "input" in data:
+        return llm.ask(data["input"])
+    else:
+        return jsonify({"error", "Invalid Request"}), 400
 
 if __name__ == '__main__':
+    import argparse
+    parser = argparse.ArgumentParser(description="SQLLM Server")
+    parser.add_argument("api_key", help="API Key file for OpenRouter")
+    args = parser.parse_args()
+
+    llm = Llama4MaverickIO(args.api_key)
+
     app.run(host="127.0.0.1", port=5000, debug=True)
