@@ -14,10 +14,10 @@ def home():
 def test():
     return jsonify("Test Success"), 200
 
-@app.route('/deepseek_test', methods=['POST'])
+@app.route('/ask', methods=['POST'])
 def deepseek_test():
     data = request.json
-    print(f"Received Data on /deepseek_test: {data}")
+    print(f"Received Data on /ask: {data}")
     if llm != None and "input" in data:
         return llm.ask(data["input"])
     else:

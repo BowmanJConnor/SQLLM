@@ -1,5 +1,5 @@
 async function ask_llm(user_input) {
-    fetch('http://127.0.0.1:5000/deepseek_test', {
+    fetch('http://127.0.0.1:5000/ask', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
