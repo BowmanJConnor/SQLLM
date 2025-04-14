@@ -19,6 +19,13 @@ Function Description, Return Value Description]:
 [(addUser, userName), This function adds a user with name userName to the database, returns 1 on success and 0 on failure].
 [(removeUser, userName), This function removes the user with name userName from the database, returns 1 on success and 0 on failure].
 """
+ELABORATE_PROMPT = """
+You are part of a software system that can call functions and retrieve data to assist users.
+Your job is to read what the user input to the system, read the system messages that are returned after processing user input,
+and explain to the user what happened on the system side. The user input is the previous input to the system. It has already been processed.
+Keep your responses short and to the point. The system messages are provided here: 
+"""
+
 
 def add_user(fcall):
     if not "userName" in fcall:
@@ -29,7 +36,7 @@ def add_user(fcall):
 def remove_user(fcall):
     if not "userName" in fcall:
         return "Failed to remove user... userName field was not provided."
-    return f"Successfully added {fcall['userName']} to the database." 
+    return f"Successfully removed {fcall['userName']} from the database." 
 
 fcall_map = {"addUser" : add_user,
              "removeUser" : remove_user}
@@ -51,6 +58,52 @@ class Llama4MaverickIO:
             print("API key file does not exist... requests will fail")
             self.api_key = ""
 
+    def get_elaborate_prompt(self, fcall_responses):
+        return ELABORATE_PROMPT + "[" + ", ".join(fcall_responses) + "]"
+
+    def elaborate(self, fcall_responses, user_input):
+        elaborate_response = requests.post(
+            url="https://openrouter.ai/api/v1/chat/completions",
+
+            headers={
+                "Authorization": f"Bearer {self.api_key}",
+                "Content-Type": "application/json",
+            },
+
+            data=json.dumps({
+                "model": "meta-llama/llama-4-maverick:free",
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": [
+                        {
+                            "type": "text",
+                            "text": user_input
+                        },
+                        ]
+                    },
+                    {
+                        "role": "system",
+                        "content": [
+                        {
+                            "type": "text",
+                            "text": self.get_elaborate_prompt(fcall_responses)
+                        },
+                        ]
+                    },
+                ],
+            })
+        )
+
+        elaborate_resp_json = elaborate_response.json()
+        if "choices" in elaborate_resp_json and len(elaborate_resp_json["choices"]) > 0 and "message" in elaborate_resp_json["choices"][0]:
+            elaborate_msg = elaborate_resp_json["choices"][0]["message"]
+            if "content" in elaborate_msg:
+                elaboration = elaborate_msg["content"]
+                return json.dumps(elaboration), 200 # Get elaboration text from LLM based on fcall responses
+        
+        return json.dumps({"error": "Bad LLM Elaboration"}), 400
+        
     def ask(self, user_input):
         fcall_response = requests.post(
             url="https://openrouter.ai/api/v1/chat/completions",
@@ -90,7 +143,7 @@ class Llama4MaverickIO:
             fcall_msg = fcall_resp_json["choices"][0]["message"]
             if "content" in fcall_msg:
                 fcalls_content = fcall_msg["content"]
-                # Try to call all functions in fcalls
+                # Try to load fcall content into a list
                 try:
                     fcalls = json.loads(fcalls_content)
                 except:
@@ -99,7 +152,8 @@ class Llama4MaverickIO:
                 fcall_responses = []
                 for fcall in fcalls:
                     fcall_responses.append(call_func(fcall))
-        else:
-            return json.dumps({"error": "Bad LLM Response"}), 400
+                
+                return self.elaborate(fcall_responses, user_input) # Get elaboration response from LLM based on fcall responses and user input
         
-        return json.dumps(fcall_responses), 200
+        return json.dumps({"error": "Bad LLM Response"}), 400
+        
