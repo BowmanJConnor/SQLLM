@@ -15,13 +15,13 @@ def test():
     return jsonify("Test Success"), 200
 
 @app.route('/ask', methods=['POST'])
-def deepseek_test():
+def ask():
     data = request.json
     print(f"Received Data on /ask: {data}")
     if llm != None and "input" in data:
         return llm.ask(data["input"])
     else:
-        return jsonify({"error", "Invalid Request"}), 400
+        return jsonify({"error": "Invalid Request"}), 400
 
 if __name__ == '__main__':
     import argparse

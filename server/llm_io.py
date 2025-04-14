@@ -2,7 +2,7 @@ from os.path import exists
 import requests
 import json
 
-SYSTEM_PROMPT = """
+FCALL_PROMPT = """
 You are a software assistant that can call functions and retrieve data to assist users.
 All responses should be function calls in JSON format as follows:
 [{\"fCall\" : \"functionName\", \"paramName\" : \"argument\", \"paramName\" : \"argument\"}]
@@ -20,9 +20,30 @@ Function Description, Return Value Description]:
 [(removeUser, userName), This function removes the user with name userName from the database, returns 1 on success and 0 on failure].
 """
 
+def add_user(fcall):
+    if not "userName" in fcall:
+        return "Failed to add user... userName field was not provided."
+    # TODO: SQL logic goes here
+    return f"Successfully added {fcall['userName']} to the database." 
+
+def remove_user(fcall):
+    if not "userName" in fcall:
+        return "Failed to remove user... userName field was not provided."
+    return f"Successfully added {fcall['userName']} to the database." 
+
+fcall_map = {"addUser" : add_user,
+             "removeUser" : remove_user}
+
+def call_func(fcall):
+    if not ("fCall" in fcall):
+        return f"LLM did not properly format function call request."
+    if not fcall["fCall"] in fcall_map:
+        return f"{fcall['fCall']} is not a valid function for this system."
+    return fcall_map[fcall['fCall']](fcall) # call function corresponding to fCall with entire fcall as argument
+
 class Llama4MaverickIO:
     def __init__(self, api_key_file):
-        self.system_prompt = SYSTEM_PROMPT
+        self.fcall_prompt = FCALL_PROMPT
         if exists(api_key_file):
             with open(api_key_file, 'r') as key_file:
                 self.api_key = key_file.readline().strip() # First line of file should contain key
@@ -31,7 +52,7 @@ class Llama4MaverickIO:
             self.api_key = ""
 
     def ask(self, user_input):
-        response = requests.post(
+        fcall_response = requests.post(
             url="https://openrouter.ai/api/v1/chat/completions",
 
             headers={
@@ -47,7 +68,7 @@ class Llama4MaverickIO:
                         "content": [
                         {
                             "type": "text",
-                            "text": self.system_prompt
+                            "text": self.fcall_prompt
                         },
                         ]
                     },
@@ -64,10 +85,21 @@ class Llama4MaverickIO:
             })
         )
 
-        json_resp = response.json()
-        if "choices" in json_resp and len(json_resp["choices"]) > 0 and "message" in json_resp["choices"][0]:
-            msg = json_resp["choices"][0]["message"]
-            if "content" in msg:
-                content = msg["content"]
-                print(content)
-        return json_resp
+        fcall_resp_json = fcall_response.json()
+        if "choices" in fcall_resp_json and len(fcall_resp_json["choices"]) > 0 and "message" in fcall_resp_json["choices"][0]:
+            fcall_msg = fcall_resp_json["choices"][0]["message"]
+            if "content" in fcall_msg:
+                fcalls_content = fcall_msg["content"]
+                # Try to call all functions in fcalls
+                try:
+                    fcalls = json.loads(fcalls_content)
+                except:
+                    return json.dumps({"error": "Invalid Request"}), 400
+
+                fcall_responses = []
+                for fcall in fcalls:
+                    fcall_responses.append(call_func(fcall))
+        else:
+            return json.dumps({"error": "Bad LLM Response"}), 400
+        
+        return json.dumps(fcall_responses), 200
