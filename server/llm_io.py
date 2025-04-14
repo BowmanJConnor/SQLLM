@@ -2,6 +2,11 @@ from os.path import exists
 import requests
 import json
 
+FUNCTION_DETAILS = """
+[(addUser, userName), This function adds a user with name userName to the database].
+[(removeUser, userName), This function removes the user with name userName from the database].
+"""
+
 FCALL_PROMPT = """
 You are a software assistant that can call functions and retrieve data to assist users.
 All responses should be function calls in JSON format as follows:
@@ -10,19 +15,22 @@ where functionName is replaced with the name of the function (only alphanumeric 
 each paramName is replaced with the real parameter name for the given function, and argument is replaced with the
 corresponding argument value for the parameter. Functions can have multiple different parameters based on their template.
 More than one function can be called in a row by responding with a comma delimited list in square brackets, i.e. \"[{},{},{}]\"
-If functionality is unavailable to fulfill a request, or the user did not ask a quetion related to the functions, simply respond \"INVALID REQUEST\".
+If functionality is unavailable to fulfill a request, or the user is asking a question or making a comment, simply respond \"ELABORATE\".
 
 The available functions to call are listed below in the format
-[(Function Name, Parameter 1, Parameter 2, etc),
-Function Description, Return Value Description]:
+[(Function Name, Parameter 1, Parameter 2, etc), Function Description]:
 
-[(addUser, userName), This function adds a user with name userName to the database, returns 1 on success and 0 on failure].
-[(removeUser, userName), This function removes the user with name userName from the database, returns 1 on success and 0 on failure].
-"""
+""" + FUNCTION_DETAILS
+
 ELABORATE_PROMPT = """
 You are part of a software system that can call functions and retrieve data to assist users.
 Your job is to read what the user input to the system, read the system messages that are returned after processing user input,
 and explain to the user what happened on the system side. The user input is the previous input to the system. It has already been processed.
+If there are no system messages provided, i.e. [], then no system functions were called.
+If the user requested for a system operation, explain that it was not performed. 
+Otherwise, just respond to the user as if they are talking to you, without mentioning the system.
+The functions are provided here for you in the format [(Function Name, Parameter 1, Parameter 2, etc), Function Description] if the user has questions about what functions can be performed:
+""" + FUNCTION_DETAILS + """
 Keep your responses short and to the point. The system messages are provided here: 
 """
 
@@ -96,13 +104,14 @@ class Llama4MaverickIO:
         )
 
         elaborate_resp_json = elaborate_response.json()
+        print(elaborate_resp_json)
         if "choices" in elaborate_resp_json and len(elaborate_resp_json["choices"]) > 0 and "message" in elaborate_resp_json["choices"][0]:
             elaborate_msg = elaborate_resp_json["choices"][0]["message"]
             if "content" in elaborate_msg:
                 elaboration = elaborate_msg["content"]
                 return json.dumps(elaboration), 200 # Get elaboration text from LLM based on fcall responses
         
-        return json.dumps({"error": "Bad LLM Elaboration"}), 400
+        return json.dumps({"error": "Bad LLM Response"}), 400
         
     def ask(self, user_input):
         fcall_response = requests.post(
@@ -138,6 +147,7 @@ class Llama4MaverickIO:
             })
         )
 
+        fcall_responses = []
         fcall_resp_json = fcall_response.json()
         if "choices" in fcall_resp_json and len(fcall_resp_json["choices"]) > 0 and "message" in fcall_resp_json["choices"][0]:
             fcall_msg = fcall_resp_json["choices"][0]["message"]
@@ -145,15 +155,12 @@ class Llama4MaverickIO:
                 fcalls_content = fcall_msg["content"]
                 # Try to load fcall content into a list
                 try:
+                    fcall_responses = []
                     fcalls = json.loads(fcalls_content)
+                    for fcall in fcalls:
+                        fcall_responses.append(call_func(fcall))
                 except:
-                    return json.dumps({"error": "Invalid Request"}), 400
-
-                fcall_responses = []
-                for fcall in fcalls:
-                    fcall_responses.append(call_func(fcall))
-                
-                return self.elaborate(fcall_responses, user_input) # Get elaboration response from LLM based on fcall responses and user input
-        
-        return json.dumps({"error": "Bad LLM Response"}), 400
+                    fcall_responses = []
+        print("fCalls: ", fcall_responses)
+        return self.elaborate(fcall_responses, user_input) # Get elaboration response from LLM based on fcall responses and user input
         
