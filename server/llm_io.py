@@ -1,10 +1,12 @@
 from os.path import exists
 import requests
 import json
+from db import db, User
 
 FUNCTION_DETAILS = """
-[(addUser, userName), This function adds a user with name userName to the database].
+[(addUser, userName, age?), This function adds a user with name userName and optional age to the database].
 [(removeUser, userName), This function removes the user with name userName from the database].
+[(modifyUser, userName, age?), This function modifies the user with name userName to change any fields provided.].
 """
 
 FCALL_PROMPT = """
@@ -14,6 +16,8 @@ All responses should be function calls in JSON format as follows:
 where functionName is replaced with the name of the function (only alphanumeric characters),
 each paramName is replaced with the real parameter name for the given function, and argument is replaced with the
 corresponding argument value for the parameter. Functions can have multiple different parameters based on their template.
+Parameters followed by a \"?\" are optional... they are not required to be included in the fCall unless the user specifies.
+If the user does specify an optional argument, it should be included, but without the \"?\" in the parameter name.
 More than one function can be called in a row by responding with a comma delimited list in square brackets, i.e. \"[{},{},{}]\"
 If functionality is unavailable to fulfill a request, or the user is asking a question or making a comment, simply respond \"ELABORATE\".
 
@@ -29,25 +33,74 @@ and explain to the user what happened on the system side. The user input is the 
 If there are no system messages provided, i.e. [], then no system functions were called.
 If the user requested for a system operation, explain that it was not performed. 
 Otherwise, just respond to the user as if they are talking to you, without mentioning the system.
-The functions are provided here for you in the format [(Function Name, Parameter 1, Parameter 2, etc), Function Description] if the user has questions about what functions can be performed:
-""" + FUNCTION_DETAILS + """
 Keep your responses short and to the point. The system messages are provided here: 
 """
 
+# fCall functions start here
+
 
 def add_user(fcall):
+    return_str = "Attempting to add user..."
+
     if not "userName" in fcall:
-        return "Failed to add user... userName field was not provided."
-    # TODO: SQL logic goes here
-    return f"Successfully added {fcall['userName']} to the database." 
+        return return_str + " Failed to add user... userName field was not provided."
+
+    user = User(name=fcall["userName"])
+    return_str += f" Successfully added {fcall['userName']} to the database."
+
+    if "age" in fcall:
+        try:
+            user.age = int(fcall["age"])
+            return_str += f" Successfully set age of {fcall['userName']} to {user.age}."
+        except:
+            pass
+
+    db.session.add(user)
+    db.session.commit()
+    return return_str
+
 
 def remove_user(fcall):
-    if not "userName" in fcall:
-        return "Failed to remove user... userName field was not provided."
-    return f"Successfully removed {fcall['userName']} from the database." 
+    return_str = "Attempting to remove user..."
 
+    if not "userName" in fcall:
+        return return_str + " Failed to remove user... userName field was not provided."
+
+    user = User.query.filter_by(name=fcall['userName']).first()
+    if not user:
+        return_str += f" Failed to remove user \"{fcall['userName']}\" because they are not in the database."
+    else:
+        db.session.delete(user)
+        db.session.commit()
+        return_str += f" Successfully removed {fcall['userName']} from the database." 
+
+    return return_str
+
+
+def modify_user(fcall):
+    return_str = "Attempting to modify user..."
+
+    if not "userName" in fcall:
+        return return_str + " Failed to modify user... userName field was not provided."
+
+    user = User.query.filter_by(name=fcall['userName']).first()
+    if not user:
+        return_str += f" Failed to modify user \"{fcall['userName']}\" because they are not in the database."
+    
+    if "age" in fcall:
+        try:
+            user.age = int(fcall["age"])
+            return_str += f" Successfully modified age of {fcall['userName']} to {user.age}."
+        except:
+            pass
+    
+    return return_str
+
+
+# fCall functions are mapped here
 fcall_map = {"addUser" : add_user,
-             "removeUser" : remove_user}
+             "removeUser" : remove_user,
+             "modifyUser" : modify_user}
 
 def call_func(fcall):
     if not ("fCall" in fcall):
@@ -56,6 +109,9 @@ def call_func(fcall):
         return f"{fcall['fCall']} is not a valid function for this system."
     return fcall_map[fcall['fCall']](fcall) # call function corresponding to fCall with entire fcall as argument
 
+
+
+# LLM interface defined here
 class Llama4MaverickIO:
     def __init__(self, api_key_file):
         self.fcall_prompt = FCALL_PROMPT
