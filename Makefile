@@ -3,7 +3,7 @@ PG_USER ?= "sqllm_user"
 PG_PASS ?= "sqllm_pass"
 PG_DB ?= "sqllm_db"
 
-API_KEY_FILE ?= "$(HOME)/API_KEYS/openrouter.key"
+API_KEY_FILE ?= "$(HOME)/API_KEYS/openrouter3.key"
 
 sqllm:
 	python3 server/server.py $(API_KEY_FILE)
